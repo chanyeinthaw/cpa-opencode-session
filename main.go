@@ -49,7 +49,7 @@ import (
 
 const (
 	pluginName      = "opencode-session"
-	pluginVersion   = "0.1.6"
+	pluginVersion   = "0.1.7"
 	opencodePrefix  = "ocg/"
 	opencodeSession = "X-OpenCode-Session"
 )
@@ -212,11 +212,26 @@ func resolveSessionID(headers http.Header, body []byte) string {
 	if value := codexMetadataValue(headers, "session_id"); value != "" {
 		return value
 	}
+	if value := headerValue(headers, "X-Claude-Code-Session-Id"); value != "" {
+		return value
+	}
 
 	var payload struct {
 		PromptCacheKey string `json:"prompt_cache_key"`
+		Metadata       struct {
+			UserID string `json:"user_id"`
+		} `json:"metadata"`
 	}
 	if json.Unmarshal(body, &payload) == nil {
+		// Claude Code encodes its session metadata as JSON inside user_id.
+		var userMetadata struct {
+			SessionID string `json:"session_id"`
+		}
+		if json.Unmarshal([]byte(payload.Metadata.UserID), &userMetadata) == nil {
+			if value := strings.TrimSpace(userMetadata.SessionID); value != "" {
+				return value
+			}
+		}
 		return strings.TrimSpace(payload.PromptCacheKey)
 	}
 	return ""

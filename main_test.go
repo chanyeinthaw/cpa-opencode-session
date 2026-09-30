@@ -42,6 +42,36 @@ func TestResolveSessionIDFallbacks(t *testing.T) {
 			want:    "metadata-session",
 		},
 		{
+			name:    "Claude session header",
+			headers: http.Header{"X-Claude-Code-Session-Id": {"claude-session"}},
+			want:    "claude-session",
+		},
+		{
+			name: "Claude user metadata",
+			body: []byte(`{"metadata":{"user_id":"{\"device_id\":\"device-123\",\"account_uuid\":\"account-123\",\"session_id\":\"claude-session\"}"}}`),
+			want: "claude-session",
+		},
+		{
+			name:    "Claude header precedes user metadata and cache key",
+			headers: http.Header{"X-Claude-Code-Session-Id": {"header-session"}},
+			body:    []byte(`{"metadata":{"user_id":"{\"session_id\":\"body-session\"}"},"prompt_cache_key":"cache-123"}`),
+			want:    "header-session",
+		},
+		{
+			name: "Claude metadata precedes cache key",
+			body: []byte(`{"metadata":{"user_id":"{\"session_id\":\"body-session\"}"},"prompt_cache_key":"cache-123"}`),
+			want: "body-session",
+		},
+		{
+			name: "Malformed Claude metadata falls back to cache key",
+			body: []byte(`{"metadata":{"user_id":"not JSON"},"prompt_cache_key":"cache-123"}`),
+			want: "cache-123",
+		},
+		{
+			name: "Claude metadata without a session",
+			body: []byte(`{"metadata":{"user_id":"{\"device_id\":\"device-123\"}"}}`),
+		},
+		{
 			name: "prompt cache key",
 			body: []byte(`{"prompt_cache_key":"cache-123"}`),
 			want: "cache-123",
@@ -129,6 +159,18 @@ func TestDifferentThreadsGetDifferentSessions(t *testing.T) {
 	})
 	if root.Headers.Get(opencodeSession) == child.Headers.Get(opencodeSession) {
 		t.Fatal("root and child requests received the same OpenCode session")
+	}
+}
+
+func TestDifferentClaudeSessionsGetDifferentOpenCodeSessions(t *testing.T) {
+	for _, sessionID := range []string{"claude-session-one", "claude-session-two"} {
+		response := interceptForTest(t, pluginapi.RequestInterceptRequest{
+			RequestedModel: "ocg/glm-5.3-flash",
+			Body:           []byte(`{"metadata":{"user_id":"{\"session_id\":\"` + sessionID + `\"}"}}`),
+		})
+		if got := response.Headers.Get(opencodeSession); got != sessionID {
+			t.Fatalf("%s = %q, want %q", opencodeSession, got, sessionID)
+		}
 	}
 }
 
